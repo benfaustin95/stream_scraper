@@ -2418,6 +2418,7 @@ dependencies = [
  "sea-orm",
  "serde",
  "serde-aux",
+ "serde_json",
  "tokio",
 ]
 

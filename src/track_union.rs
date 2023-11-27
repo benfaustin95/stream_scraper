@@ -1,10 +1,13 @@
-use std::collections::HashMap;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_aux::field_attributes::deserialize_number_from_string;
-use crate::get_data;
+use std::collections::HashMap;
 
+#[async_trait]
 pub trait GetUnion {
-   async fn get_union(id: &str) -> Result<Self, reqwest::Error>;
+    async fn get_union<'a>(id: &str) -> Result<Self, reqwest::Error>
+    where
+        Self: Sized;
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -15,7 +18,7 @@ struct ContentRating {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Duration {
-   total_milliseconds: u32,
+    total_milliseconds: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -28,7 +31,7 @@ struct SharingInfo {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackUnion {
-    #[serde(alias="__typename")]
+    #[serde(alias = "__typename")]
     typename: String,
     id: String,
     uri: String,
@@ -41,14 +44,30 @@ pub struct TrackUnion {
     sharing_info: SharingInfo,
 }
 
-
+#[async_trait]
 impl GetUnion for TrackUnion {
-   async fn get_union(id: &str) -> Result<Self, reqwest::Error> {
-        let mut body = HashMap::new();
-        body.insert("trackID", id);
-        get_data::<Self>(
+    async fn get_union<'a>(id: &str) -> Result<Self, reqwest::Error> {
+        get_union::<Self>(
             "https://2p3vesqneoheqyxagoxh5wrtay0nednp.lambda-url.us-west-2.on.aws/",
-            body,
-        ).await
+            id,
+        )
+        .await
     }
+}
+
+pub async fn get_union<T: for<'a> Deserialize<'a>>(
+    url: &str,
+    id: &str,
+) -> Result<T, reqwest::Error> {
+    let mut body = HashMap::new();
+    body.insert("trackID", id);
+    get_data::<T>(url, body).await
+}
+
+pub async fn get_data<T: for<'a> Deserialize<'a>>(
+    url: &str,
+    body: HashMap<&str, &str>,
+) -> Result<T, reqwest::Error> {
+    let client = reqwest::Client::new();
+    client.get(url).json(&body).send().await?.json::<T>().await
 }
