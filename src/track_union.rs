@@ -1,3 +1,4 @@
+use crate::album_union::AlbumUnion;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_aux::field_attributes::deserialize_number_from_string;
@@ -23,7 +24,7 @@ struct Duration {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SharingInfo {
+pub struct SharingInfo {
     share_url: String,
     share_id: String,
 }
@@ -50,6 +51,19 @@ impl GetUnion for TrackUnion {
         get_union::<Self>(
             "https://2p3vesqneoheqyxagoxh5wrtay0nednp.lambda-url.us-west-2.on.aws/",
             id,
+            "trackID",
+        )
+        .await
+    }
+}
+
+#[async_trait]
+impl GetUnion for AlbumUnion {
+    async fn get_union<'a>(id: &str) -> Result<Self, reqwest::Error> {
+        get_union::<Self>(
+            "https://wlyzeizhwc7cwn3mnjd2s4iufi0sjcoz.lambda-url.us-west-2.on.aws",
+            id,
+            "albumID",
         )
         .await
     }
@@ -58,9 +72,10 @@ impl GetUnion for TrackUnion {
 pub async fn get_union<T: for<'a> Deserialize<'a>>(
     url: &str,
     id: &str,
+    key: &str,
 ) -> Result<T, reqwest::Error> {
     let mut body = HashMap::new();
-    body.insert("trackID", id);
+    body.insert(key, id);
     get_data::<T>(url, body).await
 }
 
