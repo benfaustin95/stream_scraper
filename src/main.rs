@@ -9,15 +9,28 @@ use sea_orm::*;
 use std::collections::HashMap;
 use std::env;
 use std::error::Error;
+use async_trait::async_trait;
 use serde::Deserialize;
-use crate::track_union::{get_union, TrackUnion};
+use crate::track_union::{TrackUnion};
 
 async fn getDB() -> Result<DatabaseConnection, DbErr> {
-    dotenv().ok();
-    let db_url = env::var("DATABASE_URL").unwrap();
-    Ok(Database::connect(db_url).await?)
+
 }
 
+struct DB {
+    db: DatabaseConnection
+}
+
+#[async_trait]
+impl DB {
+    async fn create() -> Result<Self, DbErr> {
+        dotenv().ok();
+        let db_url = env::var("DATABASE_URL").unwrap();
+        Ok(Self {
+            db: Database::connect(db_url).await?,
+        })
+    }
+}
 pub async fn get_data<T: for <'a> Deserialize<'a>>(url: &str, body: HashMap<&str, &str>) -> Result<T, reqwest::Error> {
     let client = reqwest::Client::new();
     client.get(url)
@@ -30,18 +43,14 @@ pub async fn get_data<T: for <'a> Deserialize<'a>>(url: &str, body: HashMap<&str
 
 pub async fn initial_status_check(id: &str) -> Result<bool, Box<dyn Error>> {
     let db = getDB().await?;
+    let current_track= get_track_by_id(id).await?;
+    let updated_track = TrackUnion::get_union(id).await?;
+    current_track.compare_streams(updated_track.playcount).await?
+}
+
+async fn get_track_by_id(id: &str) -> Result<track::Model, Box<dyn Error>> {
     let track: track::Model = Track::find_by_id(id).one(&db).await?.unwrap();
-    let ds = track
-        .find_related(DailyStreams)
-        .order_by_desc(daily_streams::Column::Date)
-        .limit(3)
-        .all(&db)
-        .await?;
-    let track = get_union::<TrackUnion>(
-        "https://2p3vesqneoheqyxagoxh5wrtay0nednp.lambda-url.us-west-2.on.aws/",
-        id).await?;
-    println!("{:?}", track);
-    Ok(true)
+    Ok(track)
 }
 
 #[tokio::main]
