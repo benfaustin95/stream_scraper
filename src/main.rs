@@ -1,10 +1,14 @@
 mod entity;
 mod track_union;
 
-use crate::track_union::{GetUnion, TrackUnion};
+use crate::entity::album::ActiveModel;
+use crate::track_union::{get_data, GetUnion, TrackUnion};
+use chrono::{DateTime, Datelike, Days, Local, TimeZone, Utc};
 use dotenv::dotenv;
 use entity::{prelude::*, *};
 use futures::StreamExt;
+use reqwest::get;
+use sea_orm::sea_query::Frame::Following;
 use sea_orm::sea_query::IndexType::Hash;
 use sea_orm::*;
 use serde::{Deserialize, Serialize};
@@ -78,7 +82,6 @@ impl DB {
             .await?
             .json::<ArtistsAPI>()
             .await?;
-
         for artist in temp.artists {
             let mut active: artist::ActiveModel = Artist::find_by_id(artist.id)
                 .one(&self.db)
@@ -91,12 +94,28 @@ impl DB {
                 images.push(serde_json::to_string(&image).unwrap());
             }
             active.images = Set(images);
-            let update = active.update(&self.db).await?;
-            println!("{:?}", update);
+            let updated = active.update(&self.db).await?;
+            follower_instance::ActiveModel {
+                artist_id: Set(updated.id.to_owned()),
+                count: Set(artist.followers.total as i32),
+                date: Set(get_date().date_naive()),
+            }
+            .insert(&self.db)
+            .await?;
         }
-
         Ok(true)
     }
+}
+
+pub fn get_date() -> DateTime<Utc> {
+    let date = Local::now().checked_sub_days(Days::new(1)).unwrap();
+    Utc.with_ymd_and_hms(date.year(), date.month(), date.day(), 0, 0, 0)
+        .unwrap()
+}
+#[derive(Deserialize, Serialize, Debug)]
+struct FollowersAPI {
+    href: Option<String>,
+    total: u64,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -110,6 +129,7 @@ struct ArtistAPI {
     id: String,
     name: String,
     images: Vec<Image>,
+    followers: FollowersAPI,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -136,10 +156,7 @@ async fn get_spotify_access_token() -> Result<AccessToken, reqwest::Error> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let db = DB::create().await?;
+    // println!("{}", get_date());
     db.update_artists().await?;
-    // match block_on(initial_status_check("7KR99ZBAg8oiupNIinrgRF")) {
-    //     Ok(value) => println!("{:?}", value),
-    //     Err(error) => println!("{}", error),
-    // }
     Ok(())
 }
