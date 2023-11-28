@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 use std::error::Error;
 
-struct DB {
+pub struct DB {
     db: DatabaseConnection,
 }
 
@@ -59,28 +59,30 @@ impl DB {
         // self.update_artist_detail(&artist_ids).await?;
         let ids = DB::get_album_ids(&artist_ids).await?;
         let artist_map = artist_ids.into_iter().collect::<HashSet<&str>>();
-        DB::update_albums(ids, artist_map).await?;
+        DB::update_albums(ids, &artist_map).await?;
         Ok(true)
     }
 
     async fn update_albums(
         albums: HashSet<String>,
-        artists: HashSet<&str>,
+        artists: &HashSet<&str>,
     ) -> Result<bool, Box<dyn Error>> {
-        let chunk = 350;
-        let response_bodies = stream::iter(albums)
-            .map(|id| async move { DB::update_album(id).await })
-            .buffer_unordered(chunk);
+        // let chunk = 350;
+        // let response_bodies = stream::iter(albums)
+        //     .map(|id| async move { DB::update_album(id).await })
+        //     .buffer_unordered(chunk);
         Ok(true)
     }
+    //
+    // async fn update_album(
+    //     id: String,
+    //     artists: &HashSet<&str>,
+    // ) -> Result<AlbumUnion, reqwest::Error> {
+    //     let db = DB::create().await?;
+    //     let album_union = AlbumUnion::get_union(id.as_str()).await?;
+    //     album_union.update(db, artists).await?
+    // }
 
-    async fn update_album(
-        id: String,
-        // _artists: &HashSet<&str>,
-    ) -> Result<AlbumUnion, reqwest::Error> {
-        let album_union = AlbumUnion::get_union(id.as_str()).await?;
-        let db = DB::create().await?;
-    }
     async fn get_album_ids(artist: &Vec<&str>) -> Result<HashSet<String>, reqwest::Error> {
         let response_bodies: Vec<Result<Vec<String>, reqwest::Error>> =
             future::join_all(artist.iter().map(|artist_id| {
@@ -140,7 +142,7 @@ impl DB {
             follower_instance::ActiveModel {
                 artist_id: Set(updated.id.to_owned()),
                 count: Set(artist.followers.total as i32),
-                date: Set(get_date().date_naive()),
+                date: Set(get_date(1).date_naive()),
             }
             .insert(&self.db)
             .await?;
@@ -149,8 +151,8 @@ impl DB {
     }
 }
 
-pub fn get_date() -> DateTime<Utc> {
-    let date = Local::now().checked_sub_days(Days::new(1)).unwrap();
+pub fn get_date(num: u64) -> DateTime<Utc> {
+    let date = Local::now().checked_sub_days(Days::new(num)).unwrap();
     Utc.with_ymd_and_hms(date.year(), date.month(), date.day(), 0, 0, 0)
         .unwrap()
 }
@@ -199,7 +201,13 @@ async fn get_spotify_access_token() -> Result<AccessToken, reqwest::Error> {
 async fn main() -> Result<(), Box<dyn Error>> {
     let db = DB::create().await?;
     // println!("{}", get_date());
-    // db.update_artists().await?;
-    DB::update_album("1fc8tPf36cZhNYpNFrWh7o".to_string()).await?;
+    // db.update_artists().await?;let db = DB::create().await?;
+    let artists = Artist::find().all(&db.db).await?;
+    let artist_ids: Vec<&str> = artists.iter().map(|x| x.id.as_str()).collect();
+    let artist_map = artist_ids.into_iter().collect::<HashSet<&str>>();
+    let album_union = AlbumUnion::get_union("1fc8tPf36cZhNYpNFrWh7o").await?;
+    let result = album_union.update(&db, &artist_map).await?;
+    let test = Album::find_by_id(result.last_insert_id).one(&db.db).await?;
+    println!("{:?}", test.unwrap());
     Ok(())
 }

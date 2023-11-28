@@ -25,8 +25,8 @@ struct Duration {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SharingInfo {
-    share_url: String,
-    share_id: String,
+    pub share_url: String,
+    pub share_id: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
