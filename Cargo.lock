@@ -2417,6 +2417,7 @@ dependencies = [
  "chrono",
  "dotenv",
  "futures",
+ "log",
  "reqwest",
  "sea-orm",
  "serde",

@@ -1,9 +1,10 @@
-mod DB;
 mod album_union;
+mod data_base;
 mod entity;
 mod track_union;
 
 use crate::album_union::AlbumUnion;
+use crate::data_base::DB;
 use crate::track_union::GetUnion;
 use chrono::{Datelike, TimeZone};
 use entity::{prelude::*, *};
