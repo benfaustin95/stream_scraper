@@ -1,4 +1,3 @@
-use crate::album_union::AlbumUnion;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_aux::field_attributes::deserialize_number_from_string;
@@ -52,18 +51,6 @@ impl GetUnion for TrackUnion {
             "https://2p3vesqneoheqyxagoxh5wrtay0nednp.lambda-url.us-west-2.on.aws/",
             id,
             "trackID",
-        )
-        .await
-    }
-}
-
-#[async_trait]
-impl GetUnion for AlbumUnion {
-    async fn get_union<'a>(id: &str) -> Result<Self, reqwest::Error> {
-        get_union::<Self>(
-            "https://wlyzeizhwc7cwn3mnjd2s4iufi0sjcoz.lambda-url.us-west-2.on.aws",
-            id,
-            "albumID",
         )
         .await
     }

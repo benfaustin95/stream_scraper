@@ -1,15 +1,15 @@
 use crate::entity::prelude::{Album, DailyStreams, Track};
-use crate::entity::{album, daily_streams, track};
-use crate::track_union::SharingInfo;
-use crate::{get_date, Image, DB};
+use crate::entity::{album, artist_tracks, daily_streams, track};
+use crate::track_union::{get_union, GetUnion, SharingInfo};
+use crate::DB;
+use async_trait::async_trait;
 use chrono::{DateTime, Local, TimeZone, Utc};
 use sea_orm::sea_query::OnConflict;
 use sea_orm::ActiveValue::Set;
 use sea_orm::{ActiveModelTrait, EntityTrait, InsertResult};
 use serde::{Deserialize, Serialize};
 use serde_aux::field_attributes::deserialize_number_from_string;
-use std::collections::HashSet;
-use std::error::Error;
+use std::{collections::HashSet, error::Error};
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -41,7 +41,7 @@ struct ExtractedColors {
 #[serde(rename_all = "camelCase")]
 struct CoverArt {
     extracted_colors: ExtractedColors,
-    sources: Vec<Image>,
+    sources: Vec<DB::Image>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -118,7 +118,7 @@ impl AlbumUnion {
             images: Set(images),
             colors: Set(Some(serde_json::json!(&self.cover_art.extracted_colors))),
             display: Set(true),
-            updated: Set(Some(get_date(0).date_naive())),
+            updated: Set(Some(DB::get_date(0).date_naive())),
             sharing_id: Set(self.sharing_info.share_id.to_owned()),
         };
 
@@ -157,6 +157,18 @@ impl AlbumUnion {
     }
 }
 
+#[async_trait]
+impl GetUnion for AlbumUnion {
+    async fn get_union<'a>(id: &str) -> Result<Self, reqwest::Error> {
+        get_union::<Self>(
+            "https://wlyzeizhwc7cwn3mnjd2s4iufi0sjcoz.lambda-url.us-west-2.on.aws",
+            id,
+            "albumID",
+        )
+        .await
+    }
+}
+
 impl TrackObject {
     pub async fn update(
         &self,
@@ -164,19 +176,24 @@ impl TrackObject {
         artist_map: &HashSet<&str>,
         db: &DB,
     ) -> Option<&str> {
+        let track_id = self.track.uri.split(":").collect::<Vec<&str>>()[2];
+        let mut connections: Vec<artist_tracks::ActiveModel> = Vec::new();
         for i in 0..self.track.artists.items.len() {
             let artist_id = self.track.artists.items[i]
                 .uri
                 .split(":")
                 .collect::<Vec<&str>>()[2];
             if artist_map.contains(&artist_id) {
+                connections.push(artist_tracks::ActiveModel {
+                    artist_id: Set(artist_id.to_owned()),
+                    track_id: Set(track_id.to_owned()),
+                });
                 break;
             } else if i + 1 == self.track.artists.items.len() {
                 return None;
             }
         }
 
-        let track_id = self.track.uri.split(":").collect::<Vec<&str>>()[2];
         let active_track = track::ActiveModel {
             id: Set(track_id.to_owned()),
             album_id: Set(album_id.to_owned()),
@@ -204,7 +221,6 @@ impl TrackObject {
                 return None;
             }
         }
-        //hook up artists to track
         Some(track_id)
     }
 
@@ -223,7 +239,7 @@ impl TrackObject {
         }
 
         let active_daily_streams = daily_streams::ActiveModel {
-            date: Set(get_date(1).date_naive()),
+            date: Set(DB::get_date(1).date_naive()),
             track_id: Set(track_id.to_owned()),
             streams: Set(self.track.playcount as i64),
             time: Set(chrono::Utc::now()
