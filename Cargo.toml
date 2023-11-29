@@ -17,3 +17,4 @@ async-trait = "0.1.74"
 serde_json = { version = "1.0.108", features = [] }
 chrono = "0.4.31"
 log = "0.4.20"
+async-recursion = "1.0.5"

@@ -1,19 +1,15 @@
 use crate::data_base::DB;
 use crate::entity::prelude::{Album, DailyStreams, Track};
-use crate::entity::track::Relation::ArtistTracks;
 use crate::entity::{album, artist_albums, artist_tracks, daily_streams, track};
 use crate::track_union::{get_union, GetUnion, SharingInfo};
-use crate::{data_base, entity};
+use crate::{data_base, track_union};
 use async_trait::async_trait;
 use chrono::{DateTime, Local, TimeZone, Utc};
-use log::error;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::ActiveValue::Set;
-use sea_orm::{ActiveModelTrait, DbErr, EntityTrait, InsertResult};
+use sea_orm::{ActiveModelTrait, ColIdx, DbErr, EntityTrait, InsertResult};
 use serde::{Deserialize, Serialize};
 use serde_aux::field_attributes::deserialize_number_from_string;
-use std::convert::identity;
-use std::ops::BitAnd;
 use std::{collections::HashSet, error::Error};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -46,7 +42,7 @@ struct ExtractedColors {
 #[serde(rename_all = "camelCase")]
 struct CoverArt {
     extracted_colors: ExtractedColors,
-    sources: Vec<data_base::Image>,
+    sources: Vec<track_union::Image>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -104,15 +100,15 @@ pub struct AlbumUnion {
 impl AlbumUnion {
     pub async fn update(
         &self,
-        db: &DB,
-        artist_map: &HashSet<&str>,
+        artist_map: &HashSet<String>,
     ) -> Result<InsertResult<album::ActiveModel>, Box<dyn Error>> {
+        let db = DB::create().await?;
         let mut images = Vec::new();
         let mut connections: Vec<artist_albums::ActiveModel> = Vec::new();
         let album_id = self.uri.split(":").collect::<Vec<&str>>()[2];
         for i in 0..self.artists.items.len() {
             let artist_id = self.artists.items[i].uri.split(":").collect::<Vec<&str>>()[2];
-            if artist_map.contains(&artist_id) {
+            if artist_map.contains(&artist_id.to_string()) {
                 connections.push(artist_albums::ActiveModel {
                     album_id: Set(album_id.to_owned()),
                     artist_id: Set(artist_id.to_owned()),
@@ -166,7 +162,7 @@ impl AlbumUnion {
 
         for track in self.tracks.items.iter() {
             match track
-                .update(result.last_insert_id.as_str(), artist_map, db)
+                .update(result.last_insert_id.as_str(), artist_map, &db)
                 .await
             {
                 Err(error) => {
@@ -175,7 +171,8 @@ impl AlbumUnion {
                 }
                 _ => (),
             }
-            match track.update_streams(db).await {
+            println!("Track should be update: {}", track.track.name);
+            match track.update_streams(&db).await {
                 Err(error) => {
                     println!(
                         "Error updating track streams {}: {}",
@@ -193,7 +190,7 @@ impl AlbumUnion {
 
 #[async_trait]
 impl GetUnion for AlbumUnion {
-    async fn get_union<'a>(id: &str) -> Result<Self, reqwest::Error> {
+    async fn get_union<'a>(id: &str) -> Result<Self, String> {
         get_union::<Self>(
             "https://wlyzeizhwc7cwn3mnjd2s4iufi0sjcoz.lambda-url.us-west-2.on.aws",
             id,
@@ -207,7 +204,7 @@ impl TrackObject {
     pub async fn update(
         &self,
         album_id: &str,
-        artist_map: &HashSet<&str>,
+        artist_map: &HashSet<String>,
         db: &DB,
     ) -> Result<Option<InsertResult<track::ActiveModel>>, DbErr> {
         let track_id = self.track.uri.split(":").collect::<Vec<&str>>()[2];
@@ -217,7 +214,7 @@ impl TrackObject {
                 .uri
                 .split(":")
                 .collect::<Vec<&str>>()[2];
-            if artist_map.contains(&artist_id) {
+            if artist_map.contains(&artist_id.to_string()) {
                 connections.push(artist_tracks::ActiveModel {
                     artist_id: Set(artist_id.to_owned()),
                     track_id: Set(track_id.to_owned()),
@@ -251,10 +248,7 @@ impl TrackObject {
             .await?;
 
         for connection in connections {
-            let result = connection
-                .insert(&db.db)
-                .await
-                .map_err(|error| println!("Error adding connection -> {}: {}", track_id, error));
+            let result = connection.insert(&db.db).await.map_err(|error| ());
         }
 
         Ok(Some(result))
@@ -266,16 +260,15 @@ impl TrackObject {
     ) -> Result<Option<InsertResult<daily_streams::ActiveModel>>, Box<dyn Error>> {
         let track_id = self.track.uri.split(":").collect::<Vec<&str>>()[2];
 
-        if !db
+        match db
             .compare_streams(track_id, self.track.playcount)
             .await
-            .map_err(|error| {
-                println!("Error checking streams for {}: {}", track_id, error);
-                false;
-            })
-            .unwrap()
-        {
-            return Ok(None);
+            .unwrap_or_else(|error| {
+                println!("Error updating streams: {}", error);
+                Some(false)
+            }) {
+            Some(true) => (),
+            _ => return Ok(None),
         }
 
         let active_daily_streams = daily_streams::ActiveModel {
