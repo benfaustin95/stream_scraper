@@ -111,7 +111,7 @@ impl DB {
             return Ok(Some(true));
         }
 
-        return Ok(Some(false));
+        Ok(Some(false))
     }
 
     pub async fn initial_status_check(&self, id: &str) -> Result<bool, Box<dyn Error>> {
@@ -122,10 +122,7 @@ impl DB {
         }
     }
 
-    pub async fn update_artist_detail(
-        &self,
-        artists: &Vec<String>,
-    ) -> Result<bool, Box<dyn Error>> {
+    pub async fn update_artist_detail(&self, artists: &[String]) -> Result<bool, Box<dyn Error>> {
         let response = get_artist_data(format!(
             "{}/{}?ids={}",
             "https://api.spotify.com/v1",
@@ -229,15 +226,10 @@ impl DB {
     async fn update_albums_3(albums: HashSet<String>, artists: &HashSet<String>) {
         let chunk = 50;
         let response_bodies = stream::iter(albums)
-            .map(|id| {
-                let artists = artists;
-                {
-                    async move {
-                        match AlbumUnion::get_union(id.as_str()).await {
-                            Ok(value) => value.update(artists).await,
-                            Err(error) => Err(Box::from(format!("Error fetching album {}", error))),
-                        }
-                    }
+            .map(|id| async move {
+                match AlbumUnion::get_union(id.as_str()).await {
+                    Ok(value) => value.update(artists).await,
+                    Err(error) => Err(Box::from(format!("Error fetching album {}", error))),
                 }
             })
             .buffer_unordered(chunk);
@@ -266,7 +258,7 @@ impl DB {
         while {
             albums = self.get_albums_to_update(album_ids_fetched).await?;
             attempt += 1;
-            albums.len() > 0 && attempt <= 13
+            albums.is_empty() && attempt <= 13
         } {
             DB::update_albums_3(albums, artists).await
         }

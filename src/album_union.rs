@@ -1,5 +1,5 @@
 use crate::data_base::DB;
-use crate::entity::prelude::{Album, DailyStreams, Track};
+use crate::entity::prelude::{Album, ArtistAlbums, ArtistTracks, DailyStreams, Track};
 use crate::entity::{album, artist_albums, artist_tracks, daily_streams, track};
 use crate::track_union::{get_union, GetUnion, SharingInfo};
 use crate::{data_base, track_union};
@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Local, TimeZone, Utc};
 use sea_orm::sea_query::OnConflict;
 use sea_orm::ActiveValue::Set;
-use sea_orm::{ActiveModelTrait, ColIdx, DbErr, EntityTrait, InsertResult};
+use sea_orm::{DbErr, EntityTrait, InsertResult};
 use serde::{Deserialize, Serialize};
 use serde_aux::field_attributes::deserialize_number_from_string;
 use std::{collections::HashSet, error::Error};
@@ -103,21 +103,23 @@ impl AlbumUnion {
         artist_map: &HashSet<String>,
     ) -> Result<InsertResult<album::ActiveModel>, Box<dyn Error>> {
         let db = DB::create().await?;
-        let mut images = Vec::new();
+        let images = self
+            .cover_art
+            .sources
+            .iter()
+            .map(|image| serde_json::to_string(image).unwrap())
+            .collect::<Vec<String>>();
         let mut connections: Vec<artist_albums::ActiveModel> = Vec::new();
-        let album_id = self.uri.split(":").collect::<Vec<&str>>()[2];
-        for i in 0..self.artists.items.len() {
-            let artist_id = self.artists.items[i].uri.split(":").collect::<Vec<&str>>()[2];
+        let album_id = get_id_from_uri(&self.uri);
+
+        for artist in self.artists.items.iter() {
+            let artist_id = get_id_from_uri(&artist.uri);
             if artist_map.contains(&artist_id.to_string()) {
                 connections.push(artist_albums::ActiveModel {
                     album_id: Set(album_id.to_owned()),
                     artist_id: Set(artist_id.to_owned()),
                 });
             }
-        }
-
-        for image in self.cover_art.sources.iter() {
-            images.push(serde_json::to_string(image).unwrap())
         }
 
         let active_album = album::ActiveModel {
@@ -153,34 +155,32 @@ impl AlbumUnion {
             .exec(&db.db)
             .await?;
 
-        for connection in connections {
-            let result = connection
-                .insert(&db.db)
-                .await
-                .map_err(|error| println!("Error adding connection -> {}: {}", album_id, error));
-        }
+        ArtistAlbums::insert_many(connections)
+            .on_conflict(
+                OnConflict::columns([
+                    artist_albums::Column::ArtistId,
+                    artist_albums::Column::AlbumId,
+                ])
+                .do_nothing()
+                .to_owned(),
+            )
+            .exec(&db.db)
+            .await?;
 
         for track in self.tracks.items.iter() {
-            match track
+            if let Err(error) = track
                 .update(result.last_insert_id.as_str(), artist_map, &db)
                 .await
             {
-                Err(error) => {
-                    println!("Error updating track {}: {}", track.track.name, error);
-                    continue;
-                }
-                _ => (),
+                println!("Error updating track {}: {}", track.track.name, error);
+                continue;
             }
-            println!("Track should be update: {}", track.track.name);
-            match track.update_streams(&db).await {
-                Err(error) => {
-                    println!(
-                        "Error updating track streams {}: {}",
-                        track.track.name, error
-                    );
-                    continue;
-                }
-                _ => (),
+
+            if let Err(error) = track.update_streams(&db).await {
+                println!(
+                    "Error updating track streams {}: {}",
+                    track.track.name, error
+                );
             }
         }
 
@@ -207,13 +207,11 @@ impl TrackObject {
         artist_map: &HashSet<String>,
         db: &DB,
     ) -> Result<Option<InsertResult<track::ActiveModel>>, DbErr> {
-        let track_id = self.track.uri.split(":").collect::<Vec<&str>>()[2];
+        let track_id = get_id_from_uri(&self.track.uri);
         let mut connections: Vec<artist_tracks::ActiveModel> = Vec::new();
         for i in 0..self.track.artists.items.len() {
-            let artist_id = self.track.artists.items[i]
-                .uri
-                .split(":")
-                .collect::<Vec<&str>>()[2];
+            let artist_id = get_id_from_uri(&self.track.artists.items[i].uri);
+
             if artist_map.contains(&artist_id.to_string()) {
                 connections.push(artist_tracks::ActiveModel {
                     artist_id: Set(artist_id.to_owned()),
@@ -247,9 +245,17 @@ impl TrackObject {
             .exec(&db.db)
             .await?;
 
-        for connection in connections {
-            let result = connection.insert(&db.db).await.map_err(|error| ());
-        }
+        ArtistTracks::insert_many(connections)
+            .on_conflict(
+                OnConflict::columns([
+                    artist_tracks::Column::ArtistId,
+                    artist_tracks::Column::TrackId,
+                ])
+                .do_nothing()
+                .to_owned(),
+            )
+            .exec(&db.db)
+            .await?;
 
         Ok(Some(result))
     }
@@ -258,7 +264,7 @@ impl TrackObject {
         &self,
         db: &DB,
     ) -> Result<Option<InsertResult<daily_streams::ActiveModel>>, Box<dyn Error>> {
-        let track_id = self.track.uri.split(":").collect::<Vec<&str>>()[2];
+        let track_id = get_id_from_uri(&self.track.uri);
 
         match db
             .compare_streams(track_id, self.track.playcount)
@@ -293,4 +299,8 @@ impl TrackObject {
         );
         Ok(Some(result))
     }
+}
+
+fn get_id_from_uri(uri: &str) -> &str {
+    uri.split(':').collect::<Vec<&str>>()[2]
 }
