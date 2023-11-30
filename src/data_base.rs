@@ -170,6 +170,11 @@ impl DB {
         }
         Ok(true)
     }
+
+    pub async fn create_artist(&self, id: &str) -> Result<bool, Box<dyn Error>> {
+        let to_create = vec![id.to_string()];
+        self.update_artist_detail(&to_create).await
+    }
     pub async fn update_artists(&self) -> Result<bool, Box<dyn Error>> {
         let artist_ids = self
             .get_all_artists::<Vec<String>>(|value: Vec<artist::Model>| {
