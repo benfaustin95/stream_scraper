@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_aux::field_attributes::deserialize_number_from_string;
 use std::collections::HashMap;
+use std::env;
 
 #[async_trait]
 pub trait GetUnion {
@@ -78,12 +79,9 @@ pub struct TrackUnion {
 #[async_trait]
 impl GetUnion for TrackUnion {
     async fn get_union<'a>(id: &str) -> Result<Self, String> {
-        get_union::<Self>(
-            "https://2p3vesqneoheqyxagoxh5wrtay0nednp.lambda-url.us-west-2.on.aws/",
-            id,
-            "trackID",
-        )
-        .await
+        dotenv::dotenv().ok();
+        let key = env::var("TRACK_END_POINT").unwrap();
+        get_union::<Self>(key.as_str(), id, "trackID").await
     }
 }
 
@@ -123,9 +121,11 @@ pub async fn get_data<T: for<'a> Deserialize<'a>>(
 
 async fn get_spotify_access_token() -> Result<AccessToken, reqwest::Error> {
     let client = reqwest::Client::new();
-    client.post("https://accounts.spotify.com/api/token")
+    let key = env::var("SPOTIFY_KEY").unwrap();
+    client
+        .post("https://accounts.spotify.com/api/token")
         .header("Content-Type", "application/x-www-form-urlencoded")
-        .body("grant_type=client_credentials&client_id=079e4a08d2d242139097547ece7b354b&client_secret=3480073d1d8746cf9477f8469581d935")
+        .body(key.clone())
         .send()
         .await?
         .json::<AccessToken>()

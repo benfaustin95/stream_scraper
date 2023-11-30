@@ -9,14 +9,13 @@ use crate::track_union::{get_artist_data, get_data, GetUnion, TrackUnion};
 use async_recursion::async_recursion;
 use chrono::{DateTime, Datelike, Days, Local, TimeZone, Utc};
 use futures::{future, stream, StreamExt};
-use sea_orm::sea_query::OnConflict;
+use sea_orm::sea_query::{OnConflict, Query};
 use sea_orm::{
-    ColumnTrait, Database, DatabaseConnection, DbErr, EntityTrait, IntoActiveModel, ModelTrait,
-    QueryFilter, QueryOrder, QuerySelect, Set,
+    ColumnTrait, Condition, Database, DatabaseConnection, DbErr, EntityTrait, IntoActiveModel,
+    ModelTrait, QueryFilter, QueryOrder, QuerySelect, Set,
 };
-use std::collections::HashSet;
-use std::env;
-use std::error::Error;
+use std::{collections::HashSet, env, error::Error};
+use tokio::time::{sleep, Duration};
 
 pub struct DB {
     pub db: DatabaseConnection,
@@ -45,7 +44,7 @@ impl DB {
     ) -> Result<HashSet<String>, DbErr> {
         let mut update_needed = album_ids_fetched.clone();
         let already_completed: HashSet<String> = Album::find()
-            .filter(album::Column::Updated.eq(get_date(1).date_naive()))
+            .filter(album::Column::Updated.eq(get_date(0).date_naive()))
             .all(&self.db)
             .await?
             .into_iter()
@@ -110,16 +109,20 @@ impl DB {
         {
             return Ok(Some(true));
         }
-
         Ok(Some(false))
     }
 
     pub async fn initial_status_check(&self, id: &str) -> Result<bool, Box<dyn Error>> {
         let updated_track = TrackUnion::get_union(id).await?;
-        match self.compare_streams(id, updated_track.playcount).await? {
-            None => Ok(true),
-            Some(value) => Ok(value),
+        while {
+            let value = self.compare_streams(id, updated_track.playcount).await?;
+            value.is_some() && !value.unwrap()
+            //add end of day check
+        } {
+            println!("Not ready for update, waiting 15 min");
+            sleep(Duration::from_secs(900)).await;
         }
+        Ok(true)
     }
 
     pub async fn update_artist_detail(&self, artists: &[String]) -> Result<bool, Box<dyn Error>> {
@@ -166,6 +169,7 @@ impl DB {
                 .do_nothing()
                 .to_owned(),
             )
+            .do_nothing()
             .exec(&self.db)
             .await?;
         }
@@ -183,6 +187,8 @@ impl DB {
 
     #[async_recursion]
     pub async fn get_album_ids(artist: &HashSet<String>, attempt: u32) -> Option<HashSet<String>> {
+        dotenv::dotenv().ok();
+        let url = env::var("ARTIST_END_POINT").unwrap();
         if artist.is_empty() || attempt == 13 {
             return None;
         }
@@ -190,13 +196,9 @@ impl DB {
         let response_bodies: Vec<Result<Vec<String>, String>> =
             future::join_all(artist.iter().map(|artist_id| {
                 println!("artist request: {:?}", artist_id);
+                let url = &url;
                 async move {
-                    get_data::<Vec<String>>(
-                        "https://sc62bwganjfc5tklg2npefyfwy0nvcys.lambda-url.us-west-2.on.aws/",
-                        "artistID",
-                        artist_id.as_str(),
-                    )
-                    .await
+                    get_data::<Vec<String>>(url.as_str(), "artistID", artist_id.as_str()).await
                 }
             }))
             .await;
@@ -258,7 +260,7 @@ impl DB {
         while {
             albums = self.get_albums_to_update(album_ids_fetched).await?;
             attempt += 1;
-            albums.is_empty() && attempt <= 13
+            !albums.is_empty() && attempt <= 13
         } {
             DB::update_albums_3(albums, artists).await
         }
@@ -281,6 +283,64 @@ impl DB {
                 Ok(true)
             }
         }
+    }
+
+    pub async fn tracks_to_update(&self) -> Result<HashSet<String>, DbErr> {
+        Ok(Track::find()
+            .filter(
+                Condition::any().add(
+                    track::Column::Id.not_in_subquery(
+                        Query::select()
+                            .column(daily_streams::Column::TrackId)
+                            .from(DailyStreams)
+                            .and_where(daily_streams::Column::Date.eq(get_date(1).date_naive()))
+                            .to_owned(),
+                    ),
+                ),
+            )
+            .all(&self.db)
+            .await?
+            .iter()
+            .map(|model| model.album_id.clone())
+            .collect::<HashSet<String>>())
+    }
+
+    async fn update_tracks_by_album(albums: HashSet<String>) {
+        let chunk = 50;
+        let response_bodies = stream::iter(albums)
+            .map(|id| async move {
+                match AlbumUnion::get_union(id.as_str()).await {
+                    Ok(value) => value.update_track_streams().await,
+                    Err(error) => Err(Box::from(format!("Error fetching album {}", error))),
+                }
+            })
+            .buffer_unordered(chunk);
+
+        response_bodies
+            .for_each(|resp| async {
+                match resp {
+                    Ok(value) => {
+                        println!("Update success {}", value);
+                    }
+                    Err(e) => {
+                        println!("Update failed {}", e);
+                    }
+                }
+            })
+            .await;
+    }
+    pub async fn update_remaining_tracks(&self) -> Result<bool, Box<dyn Error>> {
+        let mut albums = self.tracks_to_update().await?;
+        loop {
+            DB::update_tracks_by_album(albums).await;
+            albums = self.tracks_to_update().await?;
+            if albums.is_empty() {
+                break;
+            }
+            println!("Tracks not ready to update, waiting 15 min");
+            sleep(Duration::from_secs(900)).await;
+        }
+        Ok(true)
     }
 }
 pub fn get_date(num: u64) -> DateTime<Utc> {

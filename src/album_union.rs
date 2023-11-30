@@ -10,7 +10,7 @@ use sea_orm::ActiveValue::Set;
 use sea_orm::{DbErr, EntityTrait, InsertResult};
 use serde::{Deserialize, Serialize};
 use serde_aux::field_attributes::deserialize_number_from_string;
-use std::{collections::HashSet, error::Error};
+use std::{collections::HashSet, env, error::Error};
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -164,6 +164,7 @@ impl AlbumUnion {
                 .do_nothing()
                 .to_owned(),
             )
+            .do_nothing()
             .exec(&db.db)
             .await?;
 
@@ -186,17 +187,30 @@ impl AlbumUnion {
 
         Ok(result)
     }
+
+    pub async fn update_track_streams(&self) -> Result<bool, Box<dyn Error>> {
+        let db = DB::create().await?;
+        let mut updated = 0;
+        for track in self.tracks.items.iter() {
+            if let Err(error) = track.update_streams(&db).await {
+                println!(
+                    "Error updating track streams {}: {}",
+                    track.track.name, error
+                );
+            } else {
+                updated += 1;
+            }
+        }
+        Ok(updated == self.tracks.items.len())
+    }
 }
 
 #[async_trait]
 impl GetUnion for AlbumUnion {
     async fn get_union<'a>(id: &str) -> Result<Self, String> {
-        get_union::<Self>(
-            "https://wlyzeizhwc7cwn3mnjd2s4iufi0sjcoz.lambda-url.us-west-2.on.aws",
-            id,
-            "albumID",
-        )
-        .await
+        dotenv::dotenv().ok();
+        let key = env::var("ALBUM_END_POINT").unwrap();
+        get_union::<Self>(key.as_str(), id, "albumID").await
     }
 }
 
@@ -254,6 +268,7 @@ impl TrackObject {
                 .do_nothing()
                 .to_owned(),
             )
+            .do_nothing()
             .exec(&db.db)
             .await?;
 
