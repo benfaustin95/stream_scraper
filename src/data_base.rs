@@ -1,16 +1,11 @@
 use crate::album_union::AlbumUnion;
-use crate::entity::album::Entity as Album;
-use crate::entity::artist::Entity as Artist;
-use crate::entity::daily_streams::Entity as DailyStreams;
-use crate::entity::follower_instance::Entity as FollowerInstance;
-use crate::entity::track::Entity as Track;
-use crate::entity::{album, artist, daily_streams, follower_instance, track};
+use crate::entity::{prelude::*, *};
 use crate::track_union::{get_artist_data, get_data, GetUnion, TrackUnion};
 use async_recursion::async_recursion;
 use chrono::{DateTime, Datelike, Days, Local, TimeZone, Utc};
 use futures::{future, stream, StreamExt};
-use sea_orm::sea_query::{OnConflict, Query};
 use sea_orm::{
+    sea_query::{OnConflict, Query},
     ColumnTrait, Condition, Database, DatabaseConnection, DbErr, EntityTrait, IntoActiveModel,
     ModelTrait, QueryFilter, QueryOrder, QuerySelect, Set,
 };

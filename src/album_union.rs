@@ -1,13 +1,9 @@
-use crate::data_base::DB;
-use crate::entity::prelude::{Album, ArtistAlbums, ArtistTracks, DailyStreams, Track};
-use crate::entity::{album, artist_albums, artist_tracks, daily_streams, track};
+use crate::entity::{prelude::*, *};
 use crate::track_union::{get_union, GetUnion, SharingInfo};
-use crate::{data_base, track_union};
+use crate::{data_base, data_base::DB, track_union};
 use async_trait::async_trait;
 use chrono::{DateTime, Local, TimeZone, Utc};
-use sea_orm::sea_query::OnConflict;
-use sea_orm::ActiveValue::Set;
-use sea_orm::{DbErr, EntityTrait, InsertResult};
+use sea_orm::{sea_query::OnConflict, ActiveValue::Set, DbErr, EntityTrait, InsertResult};
 use serde::{Deserialize, Serialize};
 use serde_aux::field_attributes::deserialize_number_from_string;
 use std::{collections::HashSet, env, error::Error};
