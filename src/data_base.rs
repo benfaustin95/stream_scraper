@@ -342,6 +342,62 @@ impl DB {
         }
         Ok(true)
     }
+
+    // async fn get_by_selector(page: &Page, selector: &str) -> Option<ElementHandle> {
+    //     match page.query_selector(selector).await {
+    //         Ok(Some(value)) => Some(value),
+    //         _ => None,
+    //     }
+    // }
+    // pub async fn get_dail_top_10(&self, browser: &Browser) -> Result<bool, Arc<playwright::Error>> {
+    //     let context = browser.context_builder().build().await?;
+    //     let page = context.new_page().await?;
+    //     dotenv::dotenv().ok();
+    //     page.set_default_timeout(90000).await?;
+    //     page.goto_builder(
+    //         "https://accounts.spotify.com/en/login?continue=https%3A%2F%2Fcharts.spotify.com/login",
+    //     )
+    //     .goto()
+    //     .await?;
+    //
+    //     DB::get_by_selector(&page, "[data-testid=\"login-username\"")
+    //         .await
+    //         .unwrap()
+    //         .fill_builder(env::var("SPOTIFY_EMAIL").as_str())
+    //         .fill()
+    //         .await?;
+    //     DB::get_by_selector(&page, "[data-testid=\"login-password\"")
+    //         .await
+    //         .unwrap()
+    //         .await?
+    //         .fill_builder(env::var("SPOTIFY_PASSWORD").as_str())
+    //         .fill()
+    //         .await?;
+    //     DB::get_by_selector(&page, "[data-testid=\"login-button\"")
+    //         .await
+    //         .unwrap()
+    //         .click_builder()
+    //         .click()
+    //         .await?;
+    //     DB::get_by_selector(&page, ":text('Daily Top Artists')")
+    //         .await?
+    //         .click_builder()
+    //         .click()
+    //         .await?;
+    //     let result = DB::get_by_selector(&page, "#date-picker")
+    //         .await?
+    //         .inner_text()
+    //         .await?;
+    //     println!("{}", result);
+    //     Ok(true)
+    // }
+    // pub async fn daily_top_10(&self) -> Result<bool, playwright::Error> {
+    //     let playwright = Playwright::initialize().await?;
+    //     playwright.prepare()?;
+    //     let chromium = playwright.chromium();
+    //     let browser = chromium.launcher().headless(false).launch().await?;
+    //     self.get_daily_top_10(&browser).await?;
+    // }
 }
 pub fn get_date(num: u64) -> DateTime<Utc> {
     let date = Local::now().checked_sub_days(Days::new(num)).unwrap();

@@ -11,7 +11,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let db = DB::create().await?;
 
     db.initial_status_check(env::var("STATUS_CHECK_SONG_ID")?.as_str())
-        .await?;
+        .await
+        .map_err(|error| {
+            println!("Error: {}", error);
+            error
+        })?;
+
+    println!("Passed status check");
     //update artist detail
     db.update_artists().await.map_err(|error| {
         println!("Error updating artists: {}", error);
@@ -24,6 +30,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         println!("Error updating albums: {}", error);
         error
     })?;
+    println!("Albums updated");
 
     //update streams until all streams have been updated or it is within 1 hour of the end of the day
     db.update_remaining_tracks().await.map_err(|error| {
@@ -31,5 +38,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         error
     })?;
 
+    // db.create_artist("2uYWxilOVlUdk4oV9DvwqK").await?;
+    // match db.daily_top_10().await {
+    //     _ => (),
+    // }
     Ok(())
 }
