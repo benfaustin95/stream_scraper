@@ -67,10 +67,10 @@ pub struct TrackUnion {
     typename: String,
     id: String,
     uri: String,
-    name: String,
+    pub name: String,
     content_rating: ContentRating,
     duration: Duration,
-    track_number: u32,
+    pub track_number: u32,
     #[serde(deserialize_with = "deserialize_number_from_string")]
     pub playcount: u64,
     sharing_info: SharingInfo,
@@ -112,7 +112,7 @@ pub async fn get_data<T: for<'a> Deserialize<'a>>(
                 .await
                 .map_or_else(|_| Err(value.to_owned()), |value| Ok(value)),
             _ => {
-                println!("issue: {:?}", res);
+                println!("request failed: {:?}", res);
                 Err(value.to_owned())
             }
         },

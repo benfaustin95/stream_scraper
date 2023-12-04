@@ -3,6 +3,7 @@ mod data_base;
 mod entity;
 mod track_union;
 use crate::data_base::DB;
+use chrono::Local;
 use std::env;
 use std::error::Error;
 
@@ -10,7 +11,7 @@ use std::error::Error;
 async fn main() -> Result<(), Box<dyn Error>> {
     let db = DB::create().await?;
 
-    db.initial_status_check(env::var("STATUS_CHECK_SONG_ID")?.as_str())
+    DB::initial_status_check(env::var("STATUS_CHECK_SONG_ID")?.as_str())
         .await
         .map_err(|error| {
             println!("Error: {}", error);
@@ -19,6 +20,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Passed status check");
     //update artist detail
+
+    let now = Local::now();
     db.update_artists().await.map_err(|error| {
         println!("Error updating artists: {}", error);
         error
@@ -30,17 +33,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
         println!("Error updating albums: {}", error);
         error
     })?;
+
     println!("Albums updated");
 
     //update streams until all streams have been updated or it is within 1 hour of the end of the day
-    db.update_remaining_tracks().await.map_err(|error| {
+    DB::update_remaining_tracks().await.map_err(|error| {
         println!("Error updating remaining tracks: {}", error);
         error
     })?;
 
-    // db.create_artist("2uYWxilOVlUdk4oV9DvwqK").await?;
-    // match db.daily_top_10().await {
-    //     _ => (),
-    // }
+    println!("Time it took: {}", Local::now() - now;);
+
     Ok(())
 }

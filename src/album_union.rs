@@ -108,16 +108,6 @@ impl AlbumUnion {
         let mut connections: Vec<artist_albums::ActiveModel> = Vec::new();
         let album_id = get_id_from_uri(&self.uri);
 
-        for artist in self.artists.items.iter() {
-            let artist_id = get_id_from_uri(&artist.uri);
-            if artist_map.contains(&artist_id.to_string()) {
-                connections.push(artist_albums::ActiveModel {
-                    album_id: Set(album_id.to_owned()),
-                    artist_id: Set(artist_id.to_owned()),
-                });
-            }
-        }
-
         let active_album = album::ActiveModel {
             id: Set(album_id.to_owned()),
             name: Set(self.name.to_owned()),
@@ -151,6 +141,35 @@ impl AlbumUnion {
             .exec(&db.db)
             .await?;
 
+        for track in self.tracks.items.iter() {
+            match track
+                .update(result.last_insert_id.as_str(), artist_map, &db)
+                .await
+            {
+                Ok(value) => connections.extend(value),
+                Err(error) => {
+                    println!("Error updating track {}: {}", track.track.name, error);
+                    continue;
+                }
+            }
+
+            if let Err(error) = track.update_streams(&db).await {
+                println!(
+                    "Error updating track streams {}: {}",
+                    track.track.name, error
+                );
+            }
+        }
+
+        connections.sort_by(|a, b| {
+            a.artist_id
+                .to_owned()
+                .unwrap()
+                .cmp(&b.artist_id.to_owned().unwrap())
+        });
+        connections
+            .dedup_by(|a, b| a.artist_id.to_owned().unwrap() == b.artist_id.to_owned().unwrap());
+
         ArtistAlbums::insert_many(connections)
             .on_conflict(
                 OnConflict::columns([
@@ -163,23 +182,6 @@ impl AlbumUnion {
             .do_nothing()
             .exec(&db.db)
             .await?;
-
-        for track in self.tracks.items.iter() {
-            if let Err(error) = track
-                .update(result.last_insert_id.as_str(), artist_map, &db)
-                .await
-            {
-                println!("Error updating track {}: {}", track.track.name, error);
-                continue;
-            }
-
-            if let Err(error) = track.update_streams(&db).await {
-                println!(
-                    "Error updating track streams {}: {}",
-                    track.track.name, error
-                );
-            }
-        }
 
         Ok(result)
     }
@@ -216,9 +218,10 @@ impl TrackObject {
         album_id: &str,
         artist_map: &HashSet<String>,
         db: &DB,
-    ) -> Result<Option<InsertResult<track::ActiveModel>>, DbErr> {
+    ) -> Result<Vec<artist_albums::ActiveModel>, DbErr> {
         let track_id = get_id_from_uri(&self.track.uri);
         let mut connections: Vec<artist_tracks::ActiveModel> = Vec::new();
+        let mut connections_to_return = Vec::new();
         for i in 0..self.track.artists.items.len() {
             let artist_id = get_id_from_uri(&self.track.artists.items[i].uri);
 
@@ -227,11 +230,15 @@ impl TrackObject {
                     artist_id: Set(artist_id.to_owned()),
                     track_id: Set(track_id.to_owned()),
                 });
+                connections_to_return.push(artist_albums::ActiveModel {
+                    artist_id: Set(artist_id.to_owned()),
+                    album_id: Set(album_id.to_owned()),
+                });
             }
         }
 
         if connections.is_empty() {
-            return Ok(None);
+            return Ok(connections_to_return);
         }
 
         let active_track = track::ActiveModel {
@@ -268,7 +275,7 @@ impl TrackObject {
             .exec(&db.db)
             .await?;
 
-        Ok(Some(result))
+        Ok(connections_to_return)
     }
 
     async fn update_streams(

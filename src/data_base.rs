@@ -25,15 +25,15 @@ impl DB {
         })
     }
 
-    pub async fn get_track_by_id(&self, id: &str) -> Result<Option<track::Model>, DbErr> {
+    async fn get_track_by_id(&self, id: &str) -> Result<Option<track::Model>, DbErr> {
         Track::find_by_id(id).one(&self.db).await
     }
 
-    pub async fn get_album_by_id(&self, id: &str) -> Result<Option<album::Model>, DbErr> {
+    async fn get_album_by_id(&self, id: &str) -> Result<Option<album::Model>, DbErr> {
         Album::find_by_id(id).one(&self.db).await
     }
 
-    pub async fn get_albums_to_update(
+    async fn get_albums_to_update(
         &self,
         album_ids_fetched: &HashSet<String>,
     ) -> Result<HashSet<String>, DbErr> {
@@ -48,7 +48,7 @@ impl DB {
         update_needed.retain(|id| !already_completed.contains(id));
         Ok(update_needed)
     }
-    pub async fn get_artist_by_id(&self, id: &str) -> Result<Option<artist::Model>, DbErr> {
+    async fn get_artist_by_id(&self, id: &str) -> Result<Option<artist::Model>, DbErr> {
         Artist::find_by_id(id).one(&self.db).await
     }
     pub async fn get_artist_by_id_active(
@@ -107,13 +107,18 @@ impl DB {
         Ok(Some(false))
     }
 
-    pub async fn initial_status_check(&self, id: &str) -> Result<bool, Box<dyn Error>> {
+    pub async fn initial_status_check(id: &str) -> Result<bool, Box<dyn Error>> {
         let updated_track = TrackUnion::get_union(id).await?;
         while {
-            let value = self.compare_streams(id, updated_track.playcount).await?;
+            let db = DB::create().await?;
+            let value = db.compare_streams(id, updated_track.playcount).await?;
             value.is_some() && !value.unwrap()
             //add end of day check
         } {
+            println!(
+                "Song: {} current stream count {}",
+                updated_track.name, updated_track.playcount
+            );
             println!("Not ready for update, waiting 15 min");
             sleep(Duration::from_secs(900)).await;
         }
@@ -175,6 +180,44 @@ impl DB {
         let to_create = vec![id.to_string()];
         self.update_artist_detail(&to_create).await
     }
+
+    pub async fn delete_associated_albums(&self, id: &str) -> Result<u64, DbErr> {
+        let mut albums = Album::find()
+            .find_with_related(Artist)
+            .filter(
+                Condition::any().add(
+                    album::Column::Id.in_subquery(
+                        Query::select()
+                            .column(artist_albums::Column::AlbumId)
+                            .from(ArtistAlbums)
+                            .and_where(artist_albums::Column::ArtistId.eq(id.to_owned()))
+                            .to_owned(),
+                    ),
+                ),
+            )
+            .all(&self.db)
+            .await?;
+        println!("{}", albums.len());
+        albums.retain(|(a, b)| b.len() == 1);
+        let to_delete = albums
+            .iter()
+            .map(|value| value.0.id.clone())
+            .collect::<Vec<String>>();
+        let result = Album::delete_many()
+            .filter(album::Column::Id.is_in(to_delete))
+            .exec(&self.db)
+            .await?;
+        Ok(result.rows_affected)
+    }
+
+    pub async fn delete_artist(&self, id: &str) -> Result<bool, DbErr> {
+        self.delete_associated_albums(id).await?;
+        let result = Artist::delete_by_id(id).exec(&self.db).await?;
+        if result.rows_affected != 0 {
+            return Ok(true);
+        };
+        Ok(false)
+    }
     pub async fn update_artists(&self) -> Result<bool, Box<dyn Error>> {
         let artist_ids = self
             .get_all_artists::<Vec<String>>(|value: Vec<artist::Model>| {
@@ -214,6 +257,7 @@ impl DB {
                 }
             }
         }
+
         let flat_ids = ids.into_iter().flatten().collect::<HashSet<String>>();
         match DB::get_album_ids(&artist_errors, attempt + 1).await {
             None => Some(flat_ids),
@@ -329,11 +373,13 @@ impl DB {
             })
             .await;
     }
-    pub async fn update_remaining_tracks(&self) -> Result<bool, Box<dyn Error>> {
-        let mut albums = self.tracks_to_update().await?;
+    pub async fn update_remaining_tracks() -> Result<bool, Box<dyn Error>> {
+        let mut db = DB::create().await?;
+        let mut albums = db.tracks_to_update().await?;
         loop {
+            db = DB::create().await?;
             DB::update_tracks_by_album(albums).await;
-            albums = self.tracks_to_update().await?;
+            albums = db.tracks_to_update().await?;
             if albums.is_empty() {
                 break;
             }
@@ -342,62 +388,6 @@ impl DB {
         }
         Ok(true)
     }
-
-    // async fn get_by_selector(page: &Page, selector: &str) -> Option<ElementHandle> {
-    //     match page.query_selector(selector).await {
-    //         Ok(Some(value)) => Some(value),
-    //         _ => None,
-    //     }
-    // }
-    // pub async fn get_dail_top_10(&self, browser: &Browser) -> Result<bool, Arc<playwright::Error>> {
-    //     let context = browser.context_builder().build().await?;
-    //     let page = context.new_page().await?;
-    //     dotenv::dotenv().ok();
-    //     page.set_default_timeout(90000).await?;
-    //     page.goto_builder(
-    //         "https://accounts.spotify.com/en/login?continue=https%3A%2F%2Fcharts.spotify.com/login",
-    //     )
-    //     .goto()
-    //     .await?;
-    //
-    //     DB::get_by_selector(&page, "[data-testid=\"login-username\"")
-    //         .await
-    //         .unwrap()
-    //         .fill_builder(env::var("SPOTIFY_EMAIL").as_str())
-    //         .fill()
-    //         .await?;
-    //     DB::get_by_selector(&page, "[data-testid=\"login-password\"")
-    //         .await
-    //         .unwrap()
-    //         .await?
-    //         .fill_builder(env::var("SPOTIFY_PASSWORD").as_str())
-    //         .fill()
-    //         .await?;
-    //     DB::get_by_selector(&page, "[data-testid=\"login-button\"")
-    //         .await
-    //         .unwrap()
-    //         .click_builder()
-    //         .click()
-    //         .await?;
-    //     DB::get_by_selector(&page, ":text('Daily Top Artists')")
-    //         .await?
-    //         .click_builder()
-    //         .click()
-    //         .await?;
-    //     let result = DB::get_by_selector(&page, "#date-picker")
-    //         .await?
-    //         .inner_text()
-    //         .await?;
-    //     println!("{}", result);
-    //     Ok(true)
-    // }
-    // pub async fn daily_top_10(&self) -> Result<bool, playwright::Error> {
-    //     let playwright = Playwright::initialize().await?;
-    //     playwright.prepare()?;
-    //     let chromium = playwright.chromium();
-    //     let browser = chromium.launcher().headless(false).launch().await?;
-    //     self.get_daily_top_10(&browser).await?;
-    // }
 }
 pub fn get_date(num: u64) -> DateTime<Utc> {
     let date = Local::now().checked_sub_days(Days::new(num)).unwrap();

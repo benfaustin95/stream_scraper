@@ -18,7 +18,7 @@ pub enum Relation {
         from = "Column::AlbumId",
         to = "super::album::Column::Id",
         on_update = "Cascade",
-        on_delete = "NoAction"
+        on_delete = "Cascade"
     )]
     Album,
     #[sea_orm(has_many = "super::artist_tracks::Entity")]
