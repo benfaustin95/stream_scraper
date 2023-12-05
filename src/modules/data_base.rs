@@ -208,10 +208,11 @@ impl DB {
             return None;
         }
         let to_create = vec![id.to_string()];
-        match self.update_artist_detail(&to_create).await {
-            Err(_) => return None,
-            _ => (),
+
+        if (self.update_artist_detail(&to_create).await).is_err() {
+            return None;
         }
+
         match self.get_artist_by_id(id).await {
             Err(_) => None,
             Ok(value) => value,

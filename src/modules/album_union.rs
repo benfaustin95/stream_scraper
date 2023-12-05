@@ -331,10 +331,6 @@ impl TrackObject {
             )
             .exec(&db.db)
             .await?;
-        println!(
-            "Updated streams {}: {}",
-            self.track.name, self.track.playcount
-        );
         Ok(Some(result))
     }
 }
