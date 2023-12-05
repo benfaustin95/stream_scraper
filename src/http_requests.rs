@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 
+/// The GetUnion is implemented for objects that are fetched from
+/// an aws endpoint I implemented.
 #[async_trait]
 pub(crate) trait GetUnion {
     async fn get_union<'a>(id: &str) -> Result<Self, String>
@@ -12,16 +14,22 @@ pub(crate) trait GetUnion {
         Self: Sized;
 }
 
+/// The AccessToken struct allows the program to deserialize and utilize the web token fetched
+/// from the spotify web api.
 #[derive(Deserialize, Serialize, Debug)]
 struct AccessToken {
     access_token: String,
 }
 
+/// The FollowersAPI struct is used by the ArtistAPI to deserialize follower information
+/// from the spotify web api.
 #[derive(Deserialize, Serialize, Debug)]
 pub(crate) struct FollowersAPI {
     href: Option<String>,
     pub(crate) total: u64,
 }
+
+/// The ArtistAPI is used to deserialize Artist detail obtained from the spotify web API
 #[derive(Deserialize, Serialize, Debug)]
 pub(crate) struct ArtistAPI {
     pub(crate) id: String,
@@ -30,15 +38,21 @@ pub(crate) struct ArtistAPI {
     pub(crate) followers: FollowersAPI,
 }
 
+/// The ArtistsAPI struct holds a vector of Artists returned from the get artists fn implementation.
 #[derive(Deserialize, Serialize, Debug)]
 struct ArtistsAPI {
     artists: Vec<ArtistAPI>,
 }
 
+/// The SimpleAlbum struct is used to deserialize the simple album structure returned from the spotify
+/// web api.
 #[derive(Deserialize, Serialize, Debug)]
 struct SimpleAlbum {
     uri: String,
 }
+
+/// The ArtistAlbumFetch struct is used to deserialize the album query response from the spotify web
+/// api.
 #[derive(Deserialize, Serialize, Debug)]
 struct ArtistAlbumFetch {
     next: Option<String>,
@@ -46,6 +60,7 @@ struct ArtistAlbumFetch {
     total: u64,
 }
 
+/// The get access token function gets and returns the spotify key needed to use the web api.
 async fn get_spotify_access_token() -> Result<AccessToken, reqwest::Error> {
     dotenv::dotenv().ok();
     let client = reqwest::Client::new();
@@ -60,6 +75,7 @@ async fn get_spotify_access_token() -> Result<AccessToken, reqwest::Error> {
         .await
 }
 
+/// The get artist detail function gets and returns artist detail for all url query provided.
 pub(crate) async fn get_artist_detail(url: String) -> Result<Vec<ArtistAPI>, reqwest::Error> {
     let access_token = get_spotify_access_token().await?;
     Ok(reqwest::Client::new()
@@ -75,6 +91,8 @@ pub(crate) async fn get_artist_detail(url: String) -> Result<Vec<ArtistAPI>, req
         .artists)
 }
 
+/// the get artist albums function returns all compilation, single, and album ids associated with
+/// an artist.
 pub async fn get_artist_albums(id: &str) -> Result<Vec<String>, String> {
     let types = vec!["album", "single", "compilation"];
     let access_token_object = get_spotify_access_token().await.ok();
@@ -108,6 +126,7 @@ pub async fn get_artist_albums(id: &str) -> Result<Vec<String>, String> {
     Ok(to_return)
 }
 
+/// The request function is used by the get artist albums function to make the needed requests
 async fn request(
     url: &str,
     access_token: &AccessToken,
@@ -138,6 +157,8 @@ async fn request(
     }
 }
 
+/// The get union function is used by the GetUnion trait implementations to get and return an object
+/// of type T.
 pub(crate) async fn get_union<T: for<'a> Deserialize<'a>>(
     url: &str,
     id: &str,
@@ -146,6 +167,8 @@ pub(crate) async fn get_union<T: for<'a> Deserialize<'a>>(
     get_data::<T>(url, key, id).await
 }
 
+/// The get data function is used to make an HTTP request to the providided url  with the provided
+/// key, value body and returns an object of type T.
 pub(crate) async fn get_data<T: for<'a> Deserialize<'a>>(
     url: &str,
     key: &str,
@@ -170,4 +193,26 @@ pub(crate) async fn get_data<T: for<'a> Deserialize<'a>>(
             }
         },
     }
+}
+
+#[tokio::test]
+async fn test_get_artist_detail() {
+    let url = format!(
+        "{}/{}?ids={}",
+        "https://api.spotify.com/v1", "artists", "06HL4z0CvFAxyc27GXpf02"
+    );
+    assert!(get_artist_detail(url).await.ok().is_some());
+    let url = format!(
+        "{}/{}?ids={}",
+        "https://api.spotify.com/v1", "artists", "z0CvFAxyc27GXpf02"
+    );
+    assert!(get_artist_detail(url).await.ok().is_none());
+}
+#[tokio::test]
+async fn test_get_album_ids() {
+    let result = get_artist_albums("06HL4z0CvFAxyc27GXpf02").await.ok();
+    assert!(result.is_some());
+    assert!(!result.unwrap().is_empty());
+    let result = get_artist_albums("06HL").await.ok();
+    assert!(result.is_none());
 }
