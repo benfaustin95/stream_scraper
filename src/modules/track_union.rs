@@ -1,6 +1,6 @@
-use crate::album_union::Duration;
-use crate::http_requests;
-use crate::http_requests::GetUnion;
+use crate::modules::album_union::Duration;
+use crate::modules::http_requests;
+use crate::modules::http_requests::GetUnion;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_aux::field_attributes::deserialize_number_from_string;

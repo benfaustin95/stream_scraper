@@ -1,5 +1,5 @@
-use crate::album_union::get_id_from_uri;
-use crate::track_union::Image;
+use crate::modules::album_union::get_id_from_uri;
+use crate::modules::track_union::Image;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

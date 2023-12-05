@@ -1,7 +1,6 @@
 use crate::entity::{prelude::*, *};
-use crate::http_requests::{get_union, GetUnion};
-use crate::track_union::SharingInfo;
-use crate::{data_base, data_base::DB, track_union};
+use crate::modules::http_requests::{get_union, GetUnion};
+use crate::modules::{data_base, data_base::DB, track_union, track_union::SharingInfo};
 use async_trait::async_trait;
 use chrono::{DateTime, Local, TimeZone, Utc};
 use sea_orm::{sea_query::OnConflict, ActiveValue::Set, DbErr, EntityTrait, InsertResult};

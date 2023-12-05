@@ -1,8 +1,8 @@
-use crate::album_union::AlbumUnion;
-use crate::artist_display::{AlbumDisplay, ArtistDisplay};
 use crate::entity::{prelude::*, *};
-use crate::http_requests::{get_artist_albums, get_artist_detail, get_data, GetUnion};
-use crate::track_union::TrackUnion;
+use crate::modules::album_union::AlbumUnion;
+use crate::modules::artist_display::{AlbumDisplay, ArtistDisplay};
+use crate::modules::http_requests::{get_artist_albums, get_artist_detail, get_data, GetUnion};
+use crate::modules::track_union::TrackUnion;
 use async_recursion::async_recursion;
 use chrono::{DateTime, Datelike, Days, Local, TimeZone, Utc};
 use futures::{future, stream, StreamExt};
@@ -513,8 +513,8 @@ pub fn get_date(offset: u64) -> DateTime<Utc> {
 
 #[cfg(test)]
 mod tests {
-    use crate::data_base::DB;
     use crate::entity::{prelude::*, *};
+    use crate::modules::data_base::DB;
     use sea_orm::EntityTrait;
 
     #[tokio::test]

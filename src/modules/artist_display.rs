@@ -1,9 +1,9 @@
-use crate::album_union::ExtractedColors;
-use crate::data_base::DB;
 use crate::entity::album::Entity as Album;
 use crate::entity::track::Entity as Track;
 use crate::entity::{album, daily_streams, track};
-use crate::track_union::Image;
+use crate::modules::album_union::ExtractedColors;
+use crate::modules::data_base::DB;
+use crate::modules::track_union::Image;
 use chrono::NaiveDate as Date;
 use futures::future;
 use sea_orm::{DbErr, ModelTrait};
