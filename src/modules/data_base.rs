@@ -58,7 +58,7 @@ impl DB {
     }
 
     /// Fetches and returns the artist model for a given id from the database.
-    pub(crate) async fn get_artist_by_id(&self, id: &str) -> Result<Option<artist::Model>, DbErr> {
+    pub async fn get_artist_by_id(&self, id: &str) -> Result<Option<artist::Model>, DbErr> {
         Artist::find_by_id(id).one(&self.db).await
     }
 
@@ -74,7 +74,7 @@ impl DB {
     }
 
     /// Fetches and returns all artist models from the database.
-    async fn get_all_artists_standard<P>(
+    pub async fn get_all_artists_standard<P>(
         &self,
         f: fn(Vec<artist::Model>) -> P,
     ) -> Result<P, DbErr> {
@@ -203,12 +203,19 @@ impl DB {
     }
 
     /// Creates the artists associated with the given id, once created they will be tracked until deleted.
-    pub async fn create_artist(&self, id: &str) -> Result<bool, Box<dyn Error>> {
+    pub async fn create_artist(&self, id: &str) -> Option<artist::Model> {
         if id == "5K4W6rqBFWDnAN6FQUkS6x" {
-            return Ok(false);
+            return None;
         }
         let to_create = vec![id.to_string()];
-        self.update_artist_detail(&to_create).await
+        match self.update_artist_detail(&to_create).await {
+            Err(_) => return None,
+            _ => (),
+        }
+        match self.get_artist_by_id(id).await {
+            Err(_) => None,
+            Ok(value) => value,
+        }
     }
 
     /// Deletes the albums associated with only the artist ID supplied.
