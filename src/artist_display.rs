@@ -9,6 +9,7 @@ use futures::future;
 use sea_orm::{DbErr, ModelTrait};
 use serde::{Deserialize, Serialize};
 
+/// The TrackRow Struct is used to hold the track representation used in the AlbumDisplay struct.
 #[derive(Deserialize, Serialize, Debug)]
 pub struct TrackRow {
     name: String,
@@ -17,6 +18,7 @@ pub struct TrackRow {
     difference_week: Option<i64>,
 }
 
+/// The AlbumDisplay Struct is used to hold the album representation to be output.
 #[derive(Deserialize, Serialize, Debug)]
 pub struct AlbumDisplay {
     name: String,
@@ -31,6 +33,7 @@ pub struct AlbumDisplay {
     difference_week: i64,
 }
 
+/// The ArtistDisplay Struct is used to hold the artist representation to be output.
 #[derive(Deserialize, Serialize, Debug)]
 pub struct ArtistDisplay {
     name: String,
@@ -39,9 +42,14 @@ pub struct ArtistDisplay {
 }
 
 impl ArtistDisplay {
-    pub(crate) async fn create_artist(id: &str) -> Result<Self, DbErr> {
+    /// Creates the ArtistDisplay struct to be output
+    pub(crate) async fn create_artist(id: &str) -> Result<Option<Self>, DbErr> {
         let db = DB::create().await?;
-        let artist = db.get_artist_by_id(id).await?.unwrap();
+        let artist_option = db.get_artist_by_id(id).await?;
+        if artist_option.is_none() {
+            return Ok(None);
+        }
+        let artist = artist_option.unwrap();
         let albums = artist
             .find_related(Album)
             .find_with_related(Track)
@@ -53,23 +61,23 @@ impl ArtistDisplay {
             .map(|image| serde_json::from_str::<Image>(image).unwrap())
             .collect::<Vec<Image>>();
         let mut albums_out = Vec::new();
-        for (i, album) in albums.iter().enumerate() {
-            println!("album {} of {}", i, albums.len());
+        for album in albums.iter() {
             match AlbumDisplay::create_album(&db, album).await {
                 Ok(value) => albums_out.push(value),
                 Err(error) => println!("Error creating display album: {}", error),
             }
         }
 
-        Ok(Self {
+        Ok(Some(Self {
             name: artist.name,
             images,
             albums: albums_out,
-        })
+        }))
     }
 }
 
 impl AlbumDisplay {
+    /// Creates the AlbumDisplay struct to be output
     pub(crate) async fn create_album(
         db: &DB,
         album: &(album::Model, Vec<track::Model>),
@@ -141,6 +149,7 @@ impl AlbumDisplay {
 }
 
 impl TrackRow {
+    /// Creates the TrackRow struct to be output
     async fn create_row(db: &DB, track: &track::Model) -> Result<Self, DbErr> {
         let ds = db
             .get_daily_streams_by_track(track, daily_streams::Column::Date, 8)
@@ -164,4 +173,16 @@ impl TrackRow {
             },
         })
     }
+}
+
+#[tokio::test]
+async fn test_create_artist() {
+    let result = ArtistDisplay::create_artist("06HL4z0CvFAxyc27GXpf02")
+        .await
+        .ok()
+        .unwrap();
+    assert!(result.is_some());
+    assert!(!result.unwrap().albums.is_empty());
+    let result = ArtistDisplay::create_artist("06HL4z0CvF").await.ok();
+    assert!(result.unwrap().is_none());
 }

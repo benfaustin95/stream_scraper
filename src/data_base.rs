@@ -449,15 +449,19 @@ impl DB {
 
     /// Get album for display returns an Album display object containing most recent streaming
     /// information of each track.
-    pub async fn get_album_for_display(id: &str) -> Result<AlbumDisplay, DbErr> {
+    pub async fn get_album_for_display(id: &str) -> Result<AlbumDisplay, Box<dyn Error>> {
         let db = DB::create().await?;
         let album = Album::find_by_id(id)
             .find_with_related(Track)
             .all(&db.db)
             .await?;
-        AlbumDisplay::create_album(&db, &album[0]).await
+        if album.is_empty() {
+            return Err(Box::from("album does not exist".to_string()));
+        }
+        let result = AlbumDisplay::create_album(&db, &album[0]).await?;
+        Ok(result)
     }
-    pub async fn get_artist_for_display(id: &str) -> Result<ArtistDisplay, DbErr> {
+    pub async fn get_artist_for_display(id: &str) -> Result<Option<ArtistDisplay>, DbErr> {
         ArtistDisplay::create_artist(id).await
     }
 
