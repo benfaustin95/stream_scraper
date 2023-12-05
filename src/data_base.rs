@@ -1,14 +1,17 @@
-use crate::album_union::AlbumUnion;
+use crate::album_union::{AlbumUnion, ExtractedColors};
 use crate::entity::{prelude::*, *};
-use crate::track_union::{get_artist_data, get_data, GetUnion, TrackUnion};
+use crate::track_union::{get_artist_data, get_data, GetUnion, Image, TrackUnion};
 use async_recursion::async_recursion;
 use chrono::{DateTime, Datelike, Days, Local, TimeZone, Utc};
 use futures::{future, stream, StreamExt};
+use sea_orm::prelude::Date;
 use sea_orm::{
     sea_query::{OnConflict, Query},
     ColumnTrait, Condition, Database, DatabaseConnection, DbErr, EntityTrait, IntoActiveModel,
     ModelTrait, QueryFilter, QueryOrder, QuerySelect, Set,
 };
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{collections::HashSet, env, error::Error};
 use tokio::time::{sleep, Duration};
 
@@ -388,7 +391,96 @@ impl DB {
         }
         Ok(true)
     }
+
+    pub async fn get_album_for_display(id: &str) -> Result<AlbumDisplay, DbErr> {
+        AlbumDisplay::create_album(id).await
+    }
 }
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct AlbumDisplay {
+    name: String,
+    date: Option<Date>,
+    release_date: Date,
+    colors: Option<ExtractedColors>,
+    images: Vec<Image>,
+    sharing_id: String,
+    tracks: Vec<TrackRow>,
+    total_streams: i64,
+}
+
+impl AlbumDisplay {
+    async fn create_album(id: &str) -> Result<Self, DbErr> {
+        let db = DB::create().await?;
+        let album = db.get_album_by_id(id).await?.unwrap();
+        let tracks = album.find_related(Track).all(&db.db).await?;
+        let images = album
+            .images
+            .iter()
+            .map(|image| serde_json::from_str::<Image>(image).unwrap())
+            .collect::<Vec<Image>>();
+        let colors: Option<ExtractedColors> = if album.colors.is_none() {
+            None
+        } else {
+            Some(serde_json::from_value::<ExtractedColors>(album.colors.unwrap()).unwrap())
+        };
+        let mut total = 0i64;
+        let mut track_rows = Vec::new();
+
+        for track in tracks {
+            let track_row = TrackRow::create_row(&track).await?;
+            total += track_row.total.unwrap_or_else(|| 0);
+            track_rows.push(track_row);
+        }
+
+        Ok(Self {
+            name: album.name.to_owned(),
+            date: album.updated,
+            release_date: album.release_date.to_owned(),
+            colors: colors,
+            images: images,
+            sharing_id: album.sharing_id.to_owned(),
+            tracks: track_rows,
+            total_streams: total,
+        })
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+struct TrackRow {
+    name: String,
+    total: Option<i64>,
+    difference_day: Option<i64>,
+    difference_week: Option<i64>,
+}
+
+impl TrackRow {
+    async fn create_row(track: &track::Model) -> Result<Self, DbErr> {
+        let db = DB::create().await?;
+        let ds = db
+            .get_daily_streams_by_track(&track, daily_streams::Column::Date, 8)
+            .await?;
+        Ok(Self {
+            name: track.name.to_owned(),
+            total: if ds.len() == 0 {
+                None
+            } else {
+                Some(ds[0].streams)
+            },
+            difference_day: if ds.len() < 2 {
+                None
+            } else {
+                Some(ds[0].streams - ds[1].streams)
+            },
+            difference_week: if ds.len() < 8 {
+                None
+            } else {
+                Some(ds[0].streams - ds[7].streams)
+            },
+        })
+    }
+}
+
 pub fn get_date(num: u64) -> DateTime<Utc> {
     let date = Local::now().checked_sub_days(Days::new(num)).unwrap();
     Utc.with_ymd_and_hms(date.year(), date.month(), date.day(), 0, 0, 0)

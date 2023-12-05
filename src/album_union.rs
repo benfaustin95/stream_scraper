@@ -28,7 +28,7 @@ struct Color {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-struct ExtractedColors {
+pub struct ExtractedColors {
     color_raw: Color,
     color_light: Color,
     color_dark: Color,
