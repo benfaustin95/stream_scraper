@@ -9,24 +9,28 @@ use serde::{Deserialize, Serialize};
 use serde_aux::field_attributes::deserialize_number_from_string;
 use std::{collections::HashSet, env, error::Error};
 
+/// ArtistObject is used as part of Album union struct for deserializing JSON
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct ArtistObject {
     uri: String,
 }
 
+/// ArtistsObject is used as part of Album union struct for deserializing JSON
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct ArtistsObject {
     items: Vec<ArtistObject>,
 }
 
+/// Color is used as part of Album union struct for deserializing JSON
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct Color {
     hex: String,
 }
 
+/// ExtractedColors is used as part of Album union struct for deserializing JSON
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ExtractedColors {
@@ -35,6 +39,7 @@ pub(crate) struct ExtractedColors {
     color_dark: Color,
 }
 
+/// CoverArt is used as part of Album union struct for deserializing JSON
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct CoverArt {
@@ -42,18 +47,21 @@ struct CoverArt {
     sources: Vec<track_union::Image>,
 }
 
+/// DateObject is used as part of Album union struct for deserializing JSON
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct DateObject {
     iso_string: String,
 }
 
+/// Duration is used as part of Album union/track union struct for deserializing JSON
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-struct Duration {
+pub(crate) struct Duration {
     total_milliseconds: u32,
 }
 
+/// TrackDetail is used as part of Album union struct for deserializing JSON
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct TrackDetail {
@@ -66,6 +74,7 @@ struct TrackDetail {
     artists: ArtistsObject,
 }
 
+/// TrackObject is used as part of Album union struct for deserializing JSON
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct TrackObject {
@@ -73,12 +82,15 @@ struct TrackObject {
     track: TrackDetail,
 }
 
+/// TracksObject is used as part of Album union struct for deserializing JSON
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct TracksObject {
     items: Vec<TrackObject>,
 }
 
+/// The Album Union struct is used to deserialize and ingest the album information scraped from
+/// the spotify web player.
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct AlbumUnion {
@@ -95,6 +107,9 @@ pub struct AlbumUnion {
     tracks: TracksObject,
 }
 
+/// The Album Union Implementation of the GetUnion Trait fetches the album from the aws endpoint I created
+/// which intercepts the network traffic from spotify's web player in order ot obtain the playcount
+/// for each track in the album (as well as other album and track details).
 #[async_trait]
 impl GetUnion for AlbumUnion {
     async fn get_union<'a>(id: &str) -> Result<Self, String> {
@@ -105,6 +120,7 @@ impl GetUnion for AlbumUnion {
 }
 
 impl AlbumUnion {
+    /// Ingests the album union information into the database
     pub async fn update(
         &self,
         artist_map: &HashSet<String>,
@@ -197,6 +213,7 @@ impl AlbumUnion {
         Ok(result)
     }
 
+    /// Updates only the playcount for each track in the album.
     pub async fn update_track_streams(&self) -> Result<bool, Box<dyn Error>> {
         let db = DB::create().await?;
         let mut updated = 0;
@@ -215,6 +232,7 @@ impl AlbumUnion {
 }
 
 impl TrackObject {
+    /// Ingests track union information into the database
     async fn update(
         &self,
         album_id: &str,
@@ -280,6 +298,7 @@ impl TrackObject {
         Ok(connections_to_return)
     }
 
+    /// Ingests the track playcount into the database (if it is updated)
     async fn update_streams(
         &self,
         db: &DB,
@@ -321,6 +340,17 @@ impl TrackObject {
     }
 }
 
+/// Parses the id from the uri provided
 pub(crate) fn get_id_from_uri(uri: &str) -> &str {
     uri.split(':').collect::<Vec<&str>>()[2]
+}
+
+use tokio;
+#[tokio::test]
+async fn test_get_album_union() {
+    let union = AlbumUnion::get_union("51hV7ASoVjOVuIhbib79We")
+        .await
+        .ok()
+        .unwrap();
+    assert_eq!(union.name, "Anti-Hero (feat. Bleachers)");
 }
