@@ -1,7 +1,7 @@
 use crate::album_union::AlbumUnion;
 use crate::artist_display::{AlbumDisplay, ArtistDisplay};
 use crate::entity::{prelude::*, *};
-use crate::http_requests::{get_artist_data, get_data, GetUnion};
+use crate::http_requests::{get_artist_albums, get_artist_detail, get_data, GetUnion};
 use crate::track_union::TrackUnion;
 use async_recursion::async_recursion;
 use chrono::{DateTime, Datelike, Days, Local, TimeZone, Utc};
@@ -19,7 +19,7 @@ pub struct DB {
 }
 
 impl DB {
-    pub(crate) async fn create() -> Result<Self, DbErr> {
+    pub async fn create() -> Result<Self, DbErr> {
         dotenv::dotenv().ok();
         let db_url = env::var("DATABASE_URL").unwrap();
         Ok(Self {
@@ -131,7 +131,7 @@ impl DB {
     }
 
     pub async fn update_artist_detail(&self, artists: &[String]) -> Result<bool, Box<dyn Error>> {
-        let response = get_artist_data(format!(
+        let response = get_artist_detail(format!(
             "{}/{}?ids={}",
             "https://api.spotify.com/v1",
             "artists",
@@ -233,22 +233,31 @@ impl DB {
     }
 
     #[async_recursion]
-    pub async fn get_album_ids(artist: &HashSet<String>, attempt: u32) -> Option<HashSet<String>> {
-        dotenv::dotenv().ok();
-        let url = env::var("ARTIST_END_POINT").unwrap();
+    async fn get_album_ids(artist: &HashSet<String>, attempt: u32) -> Option<HashSet<String>> {
         if artist.is_empty() || attempt == 13 {
             return None;
         }
 
-        let response_bodies: Vec<Result<Vec<String>, String>> =
+        let mut response_bodies: Vec<Result<Vec<String>, String>> =
             future::join_all(artist.iter().map(|artist_id| {
                 println!("artist request: {:?}", artist_id);
-                let url = &url;
-                async move {
-                    get_data::<Vec<String>>(url.as_str(), "artistID", artist_id.as_str()).await
-                }
+                async move { get_artist_albums(artist_id).await }
             }))
             .await;
+        response_bodies.extend(
+            future::join_all(artist.iter().map(|artist_id| {
+                println!("artist appears on request: {:?}", artist_id);
+                async move {
+                    get_data::<Vec<String>>(
+                        env::var("ARTIST_END_POINT").unwrap().as_str(),
+                        "artistID",
+                        artist_id,
+                    )
+                    .await
+                }
+            }))
+            .await,
+        );
 
         let mut ids = Vec::new();
         let mut artist_errors = HashSet::new();

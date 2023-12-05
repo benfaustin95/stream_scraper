@@ -11,11 +11,9 @@ futures = "0.3.29"
 sea-orm = { version = "0.12.6", features = ["sqlx-postgres", "runtime-async-std-native-tls", "macros", "with-json"] }
 serde = { version = "1", features = ["derive"] }
 reqwest = { version = "0.11", features = ["json"] }
-tokio = { version = "1", features = ["full"] }
 serde-aux = "4.2.0"
 async-trait = "0.1.74"
 serde_json = { version = "1.0.108", features = [] }
 chrono = "0.4.31"
-log = "0.4.20"
 async-recursion = "1.0.5"
-playwright = "0.0.20"
+tokio = { version = "1", features = ["full"] }

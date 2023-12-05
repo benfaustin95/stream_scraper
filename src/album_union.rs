@@ -321,6 +321,6 @@ impl TrackObject {
     }
 }
 
-fn get_id_from_uri(uri: &str) -> &str {
+pub(crate) fn get_id_from_uri(uri: &str) -> &str {
     uri.split(':').collect::<Vec<&str>>()[2]
 }
