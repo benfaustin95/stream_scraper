@@ -1,17 +1,16 @@
-use crate::album_union::{AlbumUnion, ExtractedColors};
+use crate::album_union::AlbumUnion;
+use crate::artist_display::{AlbumDisplay, ArtistDisplay};
 use crate::entity::{prelude::*, *};
-use crate::track_union::{get_artist_data, get_data, GetUnion, Image, TrackUnion};
+use crate::http_requests::{get_artist_data, get_data, GetUnion};
+use crate::track_union::TrackUnion;
 use async_recursion::async_recursion;
 use chrono::{DateTime, Datelike, Days, Local, TimeZone, Utc};
 use futures::{future, stream, StreamExt};
-use sea_orm::prelude::Date;
 use sea_orm::{
     sea_query::{OnConflict, Query},
     ColumnTrait, Condition, Database, DatabaseConnection, DbErr, EntityTrait, IntoActiveModel,
     ModelTrait, QueryFilter, QueryOrder, QuerySelect, Set,
 };
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::{collections::HashSet, env, error::Error};
 use tokio::time::{sleep, Duration};
 
@@ -20,7 +19,7 @@ pub struct DB {
 }
 
 impl DB {
-    pub async fn create() -> Result<Self, DbErr> {
+    pub(crate) async fn create() -> Result<Self, DbErr> {
         dotenv::dotenv().ok();
         let db_url = env::var("DATABASE_URL").unwrap();
         Ok(Self {
@@ -32,7 +31,7 @@ impl DB {
         Track::find_by_id(id).one(&self.db).await
     }
 
-    async fn get_album_by_id(&self, id: &str) -> Result<Option<album::Model>, DbErr> {
+    pub async fn get_album_by_id(&self, id: &str) -> Result<Option<album::Model>, DbErr> {
         Album::find_by_id(id).one(&self.db).await
     }
 
@@ -51,7 +50,7 @@ impl DB {
         update_needed.retain(|id| !already_completed.contains(id));
         Ok(update_needed)
     }
-    async fn get_artist_by_id(&self, id: &str) -> Result<Option<artist::Model>, DbErr> {
+    pub(crate) async fn get_artist_by_id(&self, id: &str) -> Result<Option<artist::Model>, DbErr> {
         Artist::find_by_id(id).one(&self.db).await
     }
     pub async fn get_artist_by_id_active(
@@ -63,11 +62,14 @@ impl DB {
             Some(value) => Ok(Some(value.into_active_model())),
         }
     }
-    pub async fn get_all_artists<P>(&self, f: fn(Vec<artist::Model>) -> P) -> Result<P, DbErr> {
+    async fn get_all_artists_standard<P>(
+        &self,
+        f: fn(Vec<artist::Model>) -> P,
+    ) -> Result<P, DbErr> {
         let artists = Artist::find().all(&self.db).await?;
         Ok(f(artists))
     }
-    pub async fn get_daily_streams_by_track(
+    pub(crate) async fn get_daily_streams_by_track(
         &self,
         track: &track::Model,
         sort: daily_streams::Column,
@@ -200,8 +202,7 @@ impl DB {
             )
             .all(&self.db)
             .await?;
-        println!("{}", albums.len());
-        albums.retain(|(a, b)| b.len() == 1);
+        albums.retain(|(_, b)| b.len() == 1);
         let to_delete = albums
             .iter()
             .map(|value| value.0.id.clone())
@@ -223,7 +224,7 @@ impl DB {
     }
     pub async fn update_artists(&self) -> Result<bool, Box<dyn Error>> {
         let artist_ids = self
-            .get_all_artists::<Vec<String>>(|value: Vec<artist::Model>| {
+            .get_all_artists_standard::<Vec<String>>(|value: Vec<artist::Model>| {
                 value.iter().map(|x| x.id.clone()).collect::<Vec<String>>()
             })
             .await?;
@@ -315,7 +316,7 @@ impl DB {
     }
     pub async fn update_albums_1(&self) -> Result<bool, Box<dyn Error>> {
         let artist_ids = self
-            .get_all_artists::<HashSet<String>>(|value: Vec<artist::Model>| {
+            .get_all_artists_standard::<HashSet<String>>(|value: Vec<artist::Model>| {
                 value
                     .iter()
                     .map(|x| x.id.clone())
@@ -393,91 +394,51 @@ impl DB {
     }
 
     pub async fn get_album_for_display(id: &str) -> Result<AlbumDisplay, DbErr> {
-        AlbumDisplay::create_album(id).await
-    }
-}
-
-#[derive(Deserialize, Serialize, Debug)]
-pub struct AlbumDisplay {
-    name: String,
-    date: Option<Date>,
-    release_date: Date,
-    colors: Option<ExtractedColors>,
-    images: Vec<Image>,
-    sharing_id: String,
-    tracks: Vec<TrackRow>,
-    total_streams: i64,
-}
-
-impl AlbumDisplay {
-    async fn create_album(id: &str) -> Result<Self, DbErr> {
         let db = DB::create().await?;
-        let album = db.get_album_by_id(id).await?.unwrap();
-        let tracks = album.find_related(Track).all(&db.db).await?;
-        let images = album
-            .images
-            .iter()
-            .map(|image| serde_json::from_str::<Image>(image).unwrap())
-            .collect::<Vec<Image>>();
-        let colors: Option<ExtractedColors> = if album.colors.is_none() {
-            None
-        } else {
-            Some(serde_json::from_value::<ExtractedColors>(album.colors.unwrap()).unwrap())
-        };
-        let mut total = 0i64;
-        let mut track_rows = Vec::new();
-
-        for track in tracks {
-            let track_row = TrackRow::create_row(&track).await?;
-            total += track_row.total.unwrap_or_else(|| 0);
-            track_rows.push(track_row);
-        }
-
-        Ok(Self {
-            name: album.name.to_owned(),
-            date: album.updated,
-            release_date: album.release_date.to_owned(),
-            colors: colors,
-            images: images,
-            sharing_id: album.sharing_id.to_owned(),
-            tracks: track_rows,
-            total_streams: total,
-        })
-    }
-}
-
-#[derive(Deserialize, Serialize, Debug)]
-struct TrackRow {
-    name: String,
-    total: Option<i64>,
-    difference_day: Option<i64>,
-    difference_week: Option<i64>,
-}
-
-impl TrackRow {
-    async fn create_row(track: &track::Model) -> Result<Self, DbErr> {
-        let db = DB::create().await?;
-        let ds = db
-            .get_daily_streams_by_track(&track, daily_streams::Column::Date, 8)
+        let album = Album::find_by_id(id)
+            .find_with_related(Track)
+            .all(&db.db)
             .await?;
-        Ok(Self {
-            name: track.name.to_owned(),
-            total: if ds.len() == 0 {
-                None
-            } else {
-                Some(ds[0].streams)
-            },
-            difference_day: if ds.len() < 2 {
-                None
-            } else {
-                Some(ds[0].streams - ds[1].streams)
-            },
-            difference_week: if ds.len() < 8 {
-                None
-            } else {
-                Some(ds[0].streams - ds[7].streams)
-            },
-        })
+        AlbumDisplay::create_album(&db, &album[0]).await
+    }
+    pub async fn get_artist_for_display(id: &str) -> Result<ArtistDisplay, DbErr> {
+        ArtistDisplay::create_artist(id).await
+    }
+
+    pub async fn daily_update() -> Result<chrono::Duration, Box<dyn Error>> {
+        let db = DB::create().await?;
+        DB::initial_status_check(env::var("STATUS_CHECK_SONG_ID")?.as_str())
+            .await
+            .map_err(|error| {
+                println!("Error: {}", error);
+                error
+            })?;
+
+        println!("Passed status check");
+        let now = Local::now();
+
+        //update artist detail
+        db.update_artists().await.map_err(|error| {
+            println!("Error updating artists: {}", error);
+            error
+        })?;
+        println!("Artists updated");
+
+        //update album detail and initial round of stream updates
+        db.update_albums_1().await.map_err(|error| {
+            println!("Error updating albums: {}", error);
+            error
+        })?;
+
+        println!("Albums updated");
+
+        //update streams until all streams have been updated or it is within 1 hour of the end of the day
+        DB::update_remaining_tracks().await.map_err(|error| {
+            println!("Error updating remaining tracks: {}", error);
+            error
+        })?;
+
+        Ok(Local::now() - now)
     }
 }
 

@@ -1,5 +1,6 @@
 use crate::entity::{prelude::*, *};
-use crate::track_union::{get_union, GetUnion, SharingInfo};
+use crate::http_requests::{get_union, GetUnion};
+use crate::track_union::SharingInfo;
 use crate::{data_base, data_base::DB, track_union};
 use async_trait::async_trait;
 use chrono::{DateTime, Local, TimeZone, Utc};
@@ -28,7 +29,7 @@ struct Color {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct ExtractedColors {
+pub(crate) struct ExtractedColors {
     color_raw: Color,
     color_light: Color,
     color_dark: Color,
@@ -77,12 +78,13 @@ struct TrackObject {
 struct TracksObject {
     items: Vec<TrackObject>,
 }
+
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct AlbumUnion {
     #[serde(alias = "__typename")]
     typename: String,
-    pub uri: String,
+    uri: String,
     name: String,
     date: DateObject,
     #[serde(alias = "type")]
@@ -91,6 +93,15 @@ pub struct AlbumUnion {
     cover_art: CoverArt,
     sharing_info: SharingInfo,
     tracks: TracksObject,
+}
+
+#[async_trait]
+impl GetUnion for AlbumUnion {
+    async fn get_union<'a>(id: &str) -> Result<Self, String> {
+        dotenv::dotenv().ok();
+        let key = env::var("ALBUM_END_POINT").unwrap();
+        get_union::<Self>(key.as_str(), id, "albumID").await
+    }
 }
 
 impl AlbumUnion {
@@ -203,17 +214,8 @@ impl AlbumUnion {
     }
 }
 
-#[async_trait]
-impl GetUnion for AlbumUnion {
-    async fn get_union<'a>(id: &str) -> Result<Self, String> {
-        dotenv::dotenv().ok();
-        let key = env::var("ALBUM_END_POINT").unwrap();
-        get_union::<Self>(key.as_str(), id, "albumID").await
-    }
-}
-
 impl TrackObject {
-    pub async fn update(
+    async fn update(
         &self,
         album_id: &str,
         artist_map: &HashSet<String>,
@@ -248,7 +250,7 @@ impl TrackObject {
             length: Set(self.track.duration.total_milliseconds as i32),
         };
 
-        let result = Track::insert(active_track)
+        Track::insert(active_track)
             .on_conflict(
                 OnConflict::column(track::Column::Id)
                     .update_columns([

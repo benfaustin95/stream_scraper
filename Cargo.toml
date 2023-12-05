@@ -1,5 +1,5 @@
 [package]
-name = "streamScrapper"
+name = "stream_accumulator"
 version = "0.1.0"
 edition = "2021"
 
