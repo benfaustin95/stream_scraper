@@ -38,15 +38,15 @@ I would also have incorporated hard coded data for testing the HTTP related comp
 I pushed testing off until the end of the development process, when if I had implemented unit tests as I developed the process would
 have resulted in a much more productive experience.
 ### Example
-- insert video link
+- [Presentation](./PRESENTATION.mp4)
 ***
 ## Development Experience
-I had a really fun time implementing the project. For the first time I feel like I actually created something that does 
-something I am really interested in. I have always had to go to other sources to get up-to-date streaming statistics, but 
+I had a really fun time implementing the project. For the first time I feel like I actually created something is useful
+and I am really interested in. I have always had to go to other sources to get up-to-date streaming statistics, but 
 now I have them at my figure tips whenever I would like. Although I did really enjoy the process it was not super smooth and 
 I still have a lot to implement. I wasted a lot of time trying to get an automated browser tester to work in rust, so I had 
 to pivot in order to have time to complete the implementation. Over winter break I want to work on implementing the actual
 scraping portion in rust, improve the speed of the program (primarily through more efficient use of parallelism), and 
 make the server router more robust. 
 ***
-#### [License] (LICENSE.txt)
+[License](./LICENSE.txt)
